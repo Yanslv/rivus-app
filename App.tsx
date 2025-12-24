@@ -23,8 +23,14 @@ const INITIAL_AREAS: LifeArea[] = [
 
 const App: React.FC = () => {
   const [userState, setUserState] = useState<UserState>(() => {
-    const saved = localStorage.getItem('rivus-user-state');
-    if (saved) return JSON.parse(saved);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = localStorage.getItem('rivus-user-state');
+        if (saved) return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading user state:', e);
+    }
     return {
       hasCompletedOnboarding: false,
       currentWheel: INITIAL_AREAS,
@@ -39,20 +45,46 @@ const App: React.FC = () => {
   );
   
   // Sidebar fechado por padrão no mobile, aberto no desktop
-  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
   
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('rivus-theme') as 'light' | 'dark') || 'dark';
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return (localStorage.getItem('rivus-theme') as 'light' | 'dark') || 'dark';
+      }
+    } catch (e) {
+      console.error('Error loading theme:', e);
+    }
+    return 'dark';
   });
 
   useEffect(() => {
-    localStorage.setItem('rivus-user-state', JSON.stringify(userState));
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('rivus-user-state', JSON.stringify(userState));
+      }
+    } catch (e) {
+      console.error('Error saving user state:', e);
+    }
   }, [userState]);
 
   useEffect(() => {
-    const root = window.document.documentElement;
-    theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark');
-    localStorage.setItem('rivus-theme', theme);
+    try {
+      if (typeof window !== 'undefined') {
+        const root = window.document.documentElement;
+        theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark');
+        if (window.localStorage) {
+          localStorage.setItem('rivus-theme', theme);
+        }
+      }
+    } catch (e) {
+      console.error('Error setting theme:', e);
+    }
   }, [theme]);
 
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');

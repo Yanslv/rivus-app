@@ -2,9 +2,17 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { LifeArea, SMARTTask } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY;
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export async function generateAIGuidance(wheel: LifeArea[]): Promise<{ insight: string, tasks: SMARTTask[] }> {
+  if (!ai) {
+    return { 
+      insight: "Configure sua API key do Gemini para receber insights personalizados.", 
+      tasks: [] 
+    };
+  }
+
   const wheelData = wheel.map(a => `${a.name}: ${a.score}/10`).join(", ");
   
   const prompt = `Analise a seguinte Roda da Vida: ${wheelData}.
@@ -57,6 +65,10 @@ export async function generateAIGuidance(wheel: LifeArea[]): Promise<{ insight: 
 }
 
 export async function generateEvolutionInsight(oldWheel: LifeArea[], newWheel: LifeArea[]): Promise<string> {
+  if (!ai) {
+    return "Configure sua API key do Gemini para receber insights sobre sua evolução.";
+  }
+
   const oldData = oldWheel.map(a => `${a.name}: ${a.score}`).join(", ");
   const newData = newWheel.map(a => `${a.name}: ${a.score}`).join(", ");
   
@@ -74,6 +86,10 @@ export async function generateEvolutionInsight(oldWheel: LifeArea[], newWheel: L
 }
 
 export async function simplifyTasks(currentTasks: SMARTTask[]): Promise<SMARTTask[]> {
+  if (!ai) {
+    return currentTasks;
+  }
+
   const taskTitles = currentTasks.map(t => t.title).join(", ");
   const prompt = `Transforme estas tarefas em MICRO-AÇÕES de 2 minutos: [${taskTitles}]. Retorne JSON array.`;
   const response = await ai.models.generateContent({
