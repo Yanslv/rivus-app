@@ -9,6 +9,7 @@ import Profile from './pages/Profile';
 import Support from './pages/Support';
 import Onboarding from './pages/Onboarding';
 import { AppView, UserState, LifeArea } from './types';
+import { loadUserState, saveUserState, loadTheme, saveTheme } from './services/supabaseService';
 
 const INITIAL_AREAS: LifeArea[] = [
   { id: '1', name: 'Carreira', score: 5, icon: 'work', description: 'Trabalho e propósito profissional', color: '#3b82f6' },
@@ -22,27 +23,16 @@ const INITIAL_AREAS: LifeArea[] = [
 ];
 
 const App: React.FC = () => {
-  const [userState, setUserState] = useState<UserState>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const saved = localStorage.getItem('rivus-user-state');
-        if (saved) return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Error loading user state:', e);
-    }
-    return {
-      hasCompletedOnboarding: false,
-      currentWheel: INITIAL_AREAS,
-      dailyTasks: [],
-      aiInsight: "Sua jornada começa aqui. Avalie suas áreas para receber orientações.",
-      history: []
-    };
+  const [userState, setUserState] = useState<UserState>({
+    hasCompletedOnboarding: false,
+    currentWheel: INITIAL_AREAS,
+    dailyTasks: [],
+    aiInsight: "Sua jornada começa aqui. Avalie suas áreas para receber orientações.",
+    history: []
   });
-
-  const [currentView, setCurrentView] = useState<AppView>(
-    userState.hasCompletedOnboarding ? AppView.DAILY : AppView.ONBOARDING
-  );
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentView, setCurrentView] = useState<AppView>(AppView.ONBOARDING);
   
   // Sidebar fechado por padrão no mobile, aberto no desktop
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -52,40 +42,59 @@ const App: React.FC = () => {
     return false;
   });
   
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        return (localStorage.getItem('rivus-theme') as 'light' | 'dark') || 'dark';
-      }
-    } catch (e) {
-      console.error('Error loading theme:', e);
-    }
-    return 'dark';
-  });
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
+  // Carregar dados do Supabase ao montar
   useEffect(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem('rivus-user-state', JSON.stringify(userState));
-      }
-    } catch (e) {
-      console.error('Error saving user state:', e);
-    }
-  }, [userState]);
+    async function init() {
+      setIsLoading(true);
+      try {
+        const [loadedState, loadedTheme] = await Promise.all([
+          loadUserState(),
+          loadTheme()
+        ]);
 
-  useEffect(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const root = window.document.documentElement;
-        theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark');
-        if (window.localStorage) {
-          localStorage.setItem('rivus-theme', theme);
+        if (loadedState) {
+          setUserState(loadedState);
+          setCurrentView(
+            loadedState.hasCompletedOnboarding ? AppView.DAILY : AppView.ONBOARDING
+          );
         }
+
+        if (loadedTheme) {
+          setTheme(loadedTheme);
+        }
+      } catch (error) {
+        console.error('Error initializing app:', error);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (e) {
-      console.error('Error setting theme:', e);
     }
-  }, [theme]);
+
+    init();
+  }, []);
+
+  // Salvar estado no Supabase quando mudar
+  useEffect(() => {
+    if (!isLoading) {
+      saveUserState(userState).catch(error => {
+        console.error('Error saving user state:', error);
+      });
+    }
+  }, [userState, isLoading]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const root = window.document.documentElement;
+      theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark');
+      
+      if (!isLoading) {
+        saveTheme(theme).catch(error => {
+          console.error('Error saving theme:', error);
+        });
+      }
+    }
+  }, [theme, isLoading]);
 
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
 
@@ -94,6 +103,17 @@ const App: React.FC = () => {
   };
 
   const renderView = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="flex flex-col items-center gap-4">
+            <div className="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-muted">Carregando...</p>
+          </div>
+        </div>
+      );
+    }
+
     if (!userState.hasCompletedOnboarding || currentView === AppView.ONBOARDING) {
       return <Onboarding userState={userState} updateState={updateState} onComplete={() => setCurrentView(AppView.DAILY)} />;
     }
@@ -110,7 +130,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-text-main font-display">
-      {userState.hasCompletedOnboarding && (
+      {userState.hasCompletedOnboarding && !isLoading && (
         <Sidebar 
           currentView={currentView} 
           onNavigate={setCurrentView} 
@@ -125,7 +145,7 @@ const App: React.FC = () => {
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           theme={theme}
           toggleTheme={toggleTheme}
-          hideMenu={!userState.hasCompletedOnboarding}
+          hideMenu={!userState.hasCompletedOnboarding || isLoading}
         />
         
         <main className="flex-1 overflow-y-auto overflow-x-hidden relative">

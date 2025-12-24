@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import WheelOfLife from '../components/WheelOfLife';
 import { UserState, LifeArea, AppView } from '../types';
 import { generateAIGuidance, generateEvolutionInsight } from '../services/aiService';
+import { addHistoryEntry } from '../services/supabaseService';
 
 interface WeeklyReviewProps {
   userState: UserState;
@@ -32,6 +33,13 @@ const WeeklyReview: React.FC<WeeklyReviewProps> = ({ userState, updateState, onN
         wheel: JSON.parse(JSON.stringify(areas)) // Clone profundo para o histórico
       };
 
+      // Salvar histórico no Supabase
+      await addHistoryEntry(
+        newHistoryEntry.date,
+        newHistoryEntry.avgScore,
+        newHistoryEntry.wheel
+      );
+
       updateState({
         currentWheel: areas,
         dailyTasks: guidance.tasks,
@@ -41,6 +49,7 @@ const WeeklyReview: React.FC<WeeklyReviewProps> = ({ userState, updateState, onN
       
       onNavigate(AppView.DAILY);
     } catch (e) {
+      console.error('Error saving wheel:', e);
       alert("Erro ao calibrar evolução.");
     } finally {
       setLoading(false);
