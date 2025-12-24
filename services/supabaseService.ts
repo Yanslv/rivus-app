@@ -1,8 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { UserState, LifeArea, SMARTTask } from '../types';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://uewswowmvsrxgjaeibvn.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_aAqVE3dENNeLRvE9Df0R9w_mNT2dYDt';
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL ||
+  'https://uewswowmvsrxgjaeibvn.supabase.co';
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  'sb_publishable_aAqVE3dENNeLRvE9Df0R9w_mNT2dYDt';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -49,10 +53,20 @@ interface WheelHistoryDB {
   wheel_data: LifeArea[];
 }
 
+// Verificar se há usuário autenticado (sem criar sessão)
+export async function checkAuthenticated(): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id || null;
+}
+
 // Autenticação anônima (cria um usuário temporário)
 export async function ensureAuthenticated(): Promise<string | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   if (user) {
     return user.id;
   }
@@ -63,14 +77,14 @@ export async function ensureAuthenticated(): Promise<string | null> {
     console.error('Error creating anonymous session:', error);
     return null;
   }
-  
+
   return data.user?.id || null;
 }
 
-// Carregar estado do usuário
+// Carregar estado do usuário (só se estiver autenticado)
 export async function loadUserState(): Promise<UserState | null> {
   try {
-    const userId = await ensureAuthenticated();
+    const userId = await checkAuthenticated();
     if (!userId) return null;
 
     // Carregar perfil
@@ -127,15 +141,18 @@ export async function loadUserState(): Promise<UserState | null> {
     // Converter para UserState
     const userState: UserState = {
       hasCompletedOnboarding: profile?.has_completed_onboarding || false,
-      currentWheel: (areas && areas.length > 0) ? areas.map(a => ({
-        id: a.area_id,
-        name: a.name,
-        score: a.score,
-        icon: a.icon,
-        description: a.description,
-        color: a.color
-      })) : [],
-      dailyTasks: (tasks || []).map(t => ({
+      currentWheel:
+        areas && areas.length > 0
+          ? areas.map((a) => ({
+              id: a.area_id,
+              name: a.name,
+              score: a.score,
+              icon: a.icon,
+              description: a.description,
+              color: a.color,
+            }))
+          : [],
+      dailyTasks: (tasks || []).map((t) => ({
         id: t.id,
         title: t.title,
         description: t.description || '',
@@ -143,14 +160,14 @@ export async function loadUserState(): Promise<UserState | null> {
         completed: t.completed,
         whySmart: t.why_smart || '',
         scheduledDay: t.scheduled_day,
-        scheduledTime: t.scheduled_time
+        scheduledTime: t.scheduled_time,
       })),
       aiInsight: profile?.ai_insight || '',
-      history: (history || []).map(h => ({
+      history: (history || []).map((h) => ({
         date: h.date,
         avgScore: Number(h.avg_score),
-        wheel: h.wheel_data as LifeArea[]
-      }))
+        wheel: h.wheel_data as LifeArea[],
+      })),
     };
 
     return userState;
@@ -167,16 +184,17 @@ export async function saveUserState(userState: UserState): Promise<boolean> {
     if (!userId) return false;
 
     // Salvar/atualizar perfil
-    const { error: profileError } = await supabase
-      .from('user_profiles')
-      .upsert({
+    const { error: profileError } = await supabase.from('user_profiles').upsert(
+      {
         user_id: userId,
         has_completed_onboarding: userState.hasCompletedOnboarding,
         ai_insight: userState.aiInsight,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id'
-      });
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'user_id',
+      }
+    );
 
     if (profileError) {
       console.error('Error saving profile:', profileError);
@@ -191,7 +209,7 @@ export async function saveUserState(userState: UserState): Promise<boolean> {
 
     // Salvar novas áreas atuais
     if (userState.currentWheel.length > 0) {
-      const areasToInsert = userState.currentWheel.map(area => ({
+      const areasToInsert = userState.currentWheel.map((area) => ({
         user_id: userId,
         area_id: area.id,
         name: area.name,
@@ -199,13 +217,13 @@ export async function saveUserState(userState: UserState): Promise<boolean> {
         icon: area.icon,
         description: area.description,
         color: area.color,
-        is_current: true
+        is_current: true,
       }));
 
       const { error: areasError } = await supabase
         .from('life_areas')
         .upsert(areasToInsert, {
-          onConflict: 'user_id,area_id,is_current'
+          onConflict: 'user_id,area_id,is_current',
         });
 
       if (areasError) {
@@ -214,13 +232,10 @@ export async function saveUserState(userState: UserState): Promise<boolean> {
     }
 
     // Deletar tarefas antigas e inserir novas
-    await supabase
-      .from('smart_tasks')
-      .delete()
-      .eq('user_id', userId);
+    await supabase.from('smart_tasks').delete().eq('user_id', userId);
 
     if (userState.dailyTasks.length > 0) {
-      const tasksToInsert = userState.dailyTasks.map(task => ({
+      const tasksToInsert = userState.dailyTasks.map((task) => ({
         user_id: userId,
         title: task.title,
         description: task.description,
@@ -228,7 +243,7 @@ export async function saveUserState(userState: UserState): Promise<boolean> {
         completed: task.completed,
         why_smart: task.whySmart,
         scheduled_day: task.scheduledDay,
-        scheduled_time: task.scheduledTime
+        scheduled_time: task.scheduledTime,
       }));
 
       const { error: tasksError } = await supabase
@@ -257,14 +272,12 @@ export async function addHistoryEntry(
     const userId = await ensureAuthenticated();
     if (!userId) return false;
 
-    const { error } = await supabase
-      .from('wheel_history')
-      .insert({
-        user_id: userId,
-        date,
-        avg_score: avgScore,
-        wheel_data: wheel
-      });
+    const { error } = await supabase.from('wheel_history').insert({
+      user_id: userId,
+      date,
+      avg_score: avgScore,
+      wheel_data: wheel,
+    });
 
     if (error) {
       console.error('Error saving history:', error);
@@ -284,15 +297,16 @@ export async function saveTheme(theme: 'light' | 'dark'): Promise<boolean> {
     const userId = await ensureAuthenticated();
     if (!userId) return false;
 
-    const { error } = await supabase
-      .from('user_profiles')
-      .upsert({
+    const { error } = await supabase.from('user_profiles').upsert(
+      {
         user_id: userId,
         theme,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id'
-      });
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'user_id',
+      }
+    );
 
     if (error) {
       console.error('Error saving theme:', error);

@@ -1,11 +1,12 @@
-
 export enum AppView {
+  LANDING = 'landing',
+  LOGIN = 'login',
   ONBOARDING = 'onboarding',
   DAILY = 'daily',
   WEEKLY = 'weekly',
   HISTORY = 'history',
   PROFILE = 'profile',
-  SUPPORT = 'support'
+  SUPPORT = 'support',
 }
 
 export interface LifeArea {

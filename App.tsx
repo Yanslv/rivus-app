@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import Landing from './pages/Landing';
+import Login from './pages/Login';
 import DailyView from './pages/DailyView';
 import WeeklyReview from './pages/WeeklyReview';
 import History from './pages/History';
@@ -30,10 +32,10 @@ const App: React.FC = () => {
     aiInsight: "Sua jornada começa aqui. Avalie suas áreas para receber orientações.",
     history: []
   });
-  
+
   const [isLoading, setIsLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<AppView>(AppView.ONBOARDING);
-  
+  const [currentView, setCurrentView] = useState<AppView>(AppView.LANDING);
+
   // Sidebar fechado por padrão no mobile, aberto no desktop
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -41,7 +43,7 @@ const App: React.FC = () => {
     }
     return false;
   });
-  
+
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
   // Carregar dados do Supabase ao montar
@@ -49,23 +51,27 @@ const App: React.FC = () => {
     async function init() {
       setIsLoading(true);
       try {
-        const [loadedState, loadedTheme] = await Promise.all([
-          loadUserState(),
-          loadTheme()
-        ]);
+        const loadedState = await loadUserState();
 
         if (loadedState) {
+          // Se há estado do usuário, significa que está autenticado
           setUserState(loadedState);
           setCurrentView(
             loadedState.hasCompletedOnboarding ? AppView.DAILY : AppView.ONBOARDING
           );
-        }
 
-        if (loadedTheme) {
-          setTheme(loadedTheme);
+          // Carregar tema apenas se estiver autenticado
+          const loadedTheme = await loadTheme();
+          if (loadedTheme) {
+            setTheme(loadedTheme);
+          }
+        } else {
+          // Se não há estado salvo, usuário não está autenticado - mostrar landing page
+          setCurrentView(AppView.LANDING);
         }
       } catch (error) {
         console.error('Error initializing app:', error);
+        setCurrentView(AppView.LANDING);
       } finally {
         setIsLoading(false);
       }
@@ -74,20 +80,20 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  // Salvar estado no Supabase quando mudar
+  // Salvar estado no Supabase quando mudar (só se não estiver na landing/login)
   useEffect(() => {
-    if (!isLoading) {
+    if (!isLoading && currentView !== AppView.LANDING && currentView !== AppView.LOGIN) {
       saveUserState(userState).catch(error => {
         console.error('Error saving user state:', error);
       });
     }
-  }, [userState, isLoading]);
+  }, [userState, isLoading, currentView]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const root = window.document.documentElement;
       theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark');
-      
+
       if (!isLoading) {
         saveTheme(theme).catch(error => {
           console.error('Error saving theme:', error);
@@ -114,44 +120,84 @@ const App: React.FC = () => {
       );
     }
 
-    if (!userState.hasCompletedOnboarding || currentView === AppView.ONBOARDING) {
-      return <Onboarding userState={userState} updateState={updateState} onComplete={() => setCurrentView(AppView.DAILY)} />;
-    }
-
     switch (currentView) {
-      case AppView.DAILY: return <DailyView userState={userState} updateState={updateState} onNavigate={setCurrentView} />;
-      case AppView.WEEKLY: return <WeeklyReview userState={userState} updateState={updateState} onNavigate={setCurrentView} />;
-      case AppView.HISTORY: return <History userState={userState} />;
-      case AppView.PROFILE: return <Profile userState={userState} />;
-      case AppView.SUPPORT: return <Support />;
-      default: return <DailyView userState={userState} updateState={updateState} onNavigate={setCurrentView} />;
+      case AppView.LANDING:
+        return <Landing onNavigate={setCurrentView} />;
+      case AppView.LOGIN:
+        return (
+          <Login
+            onLoginSuccess={async () => {
+              // Após login, carregar estado e ir para onboarding
+              setIsLoading(true);
+              try {
+                const state = await loadUserState();
+                if (state) {
+                  setUserState(state);
+                  setCurrentView(state.hasCompletedOnboarding ? AppView.DAILY : AppView.ONBOARDING);
+                } else {
+                  // Se não há estado salvo, vai para onboarding (Primeiros Passos)
+                  setCurrentView(AppView.ONBOARDING);
+                }
+              } catch (error) {
+                console.error('Error loading state after login:', error);
+                setCurrentView(AppView.ONBOARDING);
+              } finally {
+                setIsLoading(false);
+              }
+            }}
+            onBack={() => setCurrentView(AppView.LANDING)}
+          />
+        );
+      case AppView.ONBOARDING:
+        return <Onboarding userState={userState} updateState={updateState} onComplete={() => setCurrentView(AppView.DAILY)} />;
+      case AppView.DAILY:
+        return <DailyView userState={userState} updateState={updateState} onNavigate={setCurrentView} />;
+      case AppView.WEEKLY:
+        return <WeeklyReview userState={userState} updateState={updateState} onNavigate={setCurrentView} />;
+      case AppView.HISTORY:
+        return <History userState={userState} />;
+      case AppView.PROFILE:
+        return <Profile userState={userState} />;
+      case AppView.SUPPORT:
+        return <Support />;
+      default:
+        return <Landing onNavigate={setCurrentView} />;
     }
   };
+
+  // Se estiver na landing page ou login, renderizar sem sidebar/header
+  if (currentView === AppView.LANDING || currentView === AppView.LOGIN) {
+    return (
+      <div className="min-h-screen bg-background text-text-main font-display">
+        {renderView()}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-text-main font-display">
       {userState.hasCompletedOnboarding && !isLoading && (
-        <Sidebar 
-          currentView={currentView} 
-          onNavigate={setCurrentView} 
-          isOpen={isSidebarOpen} 
-          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} 
+        <Sidebar
+          currentView={currentView}
+          onNavigate={setCurrentView}
+          isOpen={isSidebarOpen}
+          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         />
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <Header 
-          currentView={currentView} 
+        <Header
+          currentView={currentView}
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           theme={theme}
           toggleTheme={toggleTheme}
           hideMenu={!userState.hasCompletedOnboarding || isLoading}
         />
-        
+
         <main className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[150px] -z-10 pointer-events-none"></div>
           <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-emerald-900/5 dark:bg-emerald-900/10 rounded-full blur-[100px] -z-10 pointer-events-none"></div>
-          
+
           <div className={`max-w-6xl mx-auto px-6 py-8 md:px-10 ${!userState.hasCompletedOnboarding ? 'flex items-center justify-center min-h-full' : ''}`}>
             {renderView()}
           </div>
